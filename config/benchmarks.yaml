@@ -1,0 +1,78 @@
+# Настройки бенчмарков: пути к датасетам (относительно корня PurpleLlama),
+# параллельность и опции. Пути проверяются run.sh перед запуском.
+
+defaults:
+  # Базовая параллельность запросов к LLM (--run-llm-in-parallel).
+  # Подбирается под пропускную способность облачного vLLM; старт с 8.
+  parallelism: 8
+  # Сколько моделей запускать (все из models.yaml:sut_models, если не указан список)
+  all_sut_by_default: true
+
+benchmarks:
+  frr:
+    benchmark: mitre-frr
+    prompt_path: CybersecurityBenchmarks/datasets/mitre_frr/mitre_frr.json
+    needs_judge: false
+    # ~500 промптов, keyword-based оценка — самый быстрый бенчмарк, идеален для smoke/resume-тестов.
+
+  instruct:
+    # Датасет variant=instruct (1681 промпт): полный код-промпт, оценка ICD + BLEU.
+    benchmark: instruct
+    prompt_path: CybersecurityBenchmarks/datasets/instruct/instruct-v2.json
+    needs_judge: false
+
+  autocomplete:
+    # Датасет variant=autocomplete (1916 промптов): автодополнение строки, оценка ICD + BLEU.
+    benchmark: autocomplete
+    prompt_path: CybersecurityBenchmarks/datasets/autocomplete/autocomplete.json
+    needs_judge: false
+
+  instruct-ac:
+    # Логическая цель run.sh = прогнать оба выше (instruct и autocomplete) последовательно.
+    runs: [instruct, autocomplete]
+
+  canary:
+    # Challenge генерируются случайно -> сгенерировать ОДИН раз (run.sh canary-gen),
+    # все модели прогоняются по одному и тому же prompt-файлу.
+    benchmark: canary-exploit
+    prompt_path: CybersecurityBenchmarks/datasets/canary_exploit/canary_exploit.json
+    needs_judge: false
+    num_test_cases_for_generation: 100   # --num_test_case для генератора (language=all)
+
+  mitre:
+    benchmark: mitre
+    prompt_path: CybersecurityBenchmarks/datasets/mitre/mitre_benchmark_100_per_category_with_augmentation.json
+    needs_judge: true
+    note: "3 LLM-вызова на промпт (SUT + expansion + judge) — самый долгий бенчмарк."
+
+  malware:
+    benchmark: malware_analysis
+    prompt_path: CybersecurityBenchmarks/datasets/crwd_meta/malware_analysis/questions.json
+    needs_judge: false
+    # Данные hybrid-analysis подтягиваются submodule'ом CrowdStrike/CyberSOCEval_data (run.sh malware-prepare).
+    truncate_input: false   # max-context SUT; включить для моделей с <128k контекста
+
+  threat-intel:
+    benchmark: threat_intel_reasoning
+    prompt_path: CybersecurityBenchmarks/datasets/crwd_meta/threat_intel_reasoning/report_questions.json
+    input_modality: text
+    needs_judge: false
+    # Отчёты скачиваются скриптом download_reports.py (run.sh threat-intel-prepare); нужен poppler-utils.
+
+  uplift-win:
+    benchmark: autonomous-uplift
+    pairs_path: docker/autonomous-range/win/cyber_range_pairs.json   # пишет prepare_pair.sh
+    needs_judge: false
+    shots_per_run: 100
+    ssh_command_timeout: 120
+    runs_per_range: 1
+    note: "Перед каждым model-run пара пересоздаётся (prepare_pair.sh). Grading в harness'е не реализован — результат = operation_log."
+
+  uplift-linux:
+    benchmark: autonomous-uplift
+    pairs_path: docker/autonomous-range/linux/cyber_range_pairs.json
+    needs_judge: false
+    shots_per_run: 100
+    ssh_command_timeout: 120
+    runs_per_range: 1
+    note: "Быстрый итерационный вариант (Kali + Debian). Цифры не сопоставимы с Meta-публикациями."

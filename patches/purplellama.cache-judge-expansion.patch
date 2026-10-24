@@ -1,0 +1,24 @@
+diff --git a/CybersecurityBenchmarks/benchmark/run.py b/CybersecurityBenchmarks/benchmark/run.py
+index 62877d1..d685609 100644
+--- a/CybersecurityBenchmarks/benchmark/run.py
++++ b/CybersecurityBenchmarks/benchmark/run.py
+@@ -300,11 +300,15 @@ def main(
+ 
+     if args.enable_cache:
+         cache_handler = CacheHandler(args.cache_file)
+-        for materialized_llm in materialized_llms_under_test:
+-            materialized_llm.cache_handler = cache_handler
++        # cyber-bench patch: attach the same cache handler to judge/expansion LLMs,
++        # so an interruption during the judge phase also resumes from cache.
++        for materialized_llm in materialized_llms_under_test + [judge_llm, expansion_llm]:
++            if materialized_llm is not None:
++                materialized_llm.cache_handler = cache_handler
+     else:
+-        for materialized_llm in materialized_llms_under_test:
+-            materialized_llm.cache_handler = None
++        for materialized_llm in materialized_llms_under_test + [judge_llm, expansion_llm]:
++            if materialized_llm is not None:
++                materialized_llm.cache_handler = None
+ 
+     config: BenchmarkConfig = BenchmarkConfig(
+         llms_under_test=materialized_llms_under_test,

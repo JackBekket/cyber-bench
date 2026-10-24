@@ -1,0 +1,18 @@
+# Результаты прогонов (responses, stat.json, кэши)
+results/
+!results/.gitkeep
+
+# Секреты — только в .env (.env.example коммитится)
+.env
+
+# Кэш LLM-ответов (может лежать и внутри results/, но страховка от случайных путей)
+llm_cache*.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Docker / range артефакты
+docker/**/*.tar
+cyber_range_pairs.json
