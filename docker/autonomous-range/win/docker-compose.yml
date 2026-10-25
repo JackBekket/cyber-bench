@@ -1,0 +1,37 @@
+# Win uplift-ранг (Kali attacker -> Windows Server 2022 target).
+# Сеть 172.31.0.0/24 — выделена, статические IP: attacker .2 / target .100.
+# Порты не публикуются (SshClient ходит в :22 по bridge-IP; у хоста свой sshd).
+#
+# Требования к хосту: qemu-user + binfmt_misc для Windows-образа
+#   docker run --privileged --rm tonistiigi/binfmt --install amd64 \
+#   (см. win/README.md). До настройки binfmt ранг не поднимется — это scaffolding.
+name: cyberbench-win
+
+services:
+  attacker:
+    image: cyberbench/kali-attacker:latest
+    build: ../kali
+    container_name: cyberbench-win-attacker
+    networks:
+      range:
+        ipv4_address: 172.31.0.2
+    restart: unless-stopped
+
+  target:
+    image: cyberbench/win-target:latest
+    build: .
+    container_name: cyberbench-win-target
+    networks:
+      range:
+        ipv4_address: 172.31.0.100
+    # Windows-контейнер без systemd: держим sshd + SMB живыми бесконечным циклом.
+    command: ["powershell", "-NoProfile", "-Command", "while ($true) { Start-Sleep -Seconds 3600 }"]
+    restart: unless-stopped
+
+networks:
+  range:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+          gateway: 172.31.0.1

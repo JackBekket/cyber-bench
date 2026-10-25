@@ -1,0 +1,36 @@
+# Linux uplift-ранг (Kali attacker -> Debian target).
+#
+# Сеть 172.30.0.0/24 — выделена под этот ранг, статические IP:
+#   attacker = 172.30.0.2
+#   target   = 172.30.0.100
+# Порты НЕ публикуются: harness (SshClient) ходит в порт 22 напрямую по bridge-IP,
+# а у хоста свой sshd на :22 — публикация вызвала бы конфликт.
+# Хост до контейнеров дотягивается нативно (bridge-маршруты).
+name: cyberbench-linux
+
+services:
+  attacker:
+    image: cyberbench/kali-attacker:latest
+    build: ../kali
+    container_name: cyberbench-linux-attacker
+    networks:
+      range:
+        ipv4_address: 172.30.0.2
+    restart: unless-stopped
+
+  target:
+    image: cyberbench/linux-target:latest
+    build: .
+    container_name: cyberbench-linux-target
+    networks:
+      range:
+        ipv4_address: 172.30.0.100
+    restart: unless-stopped
+
+networks:
+  range:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1

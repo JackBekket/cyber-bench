@@ -10,7 +10,7 @@
 | 2 | Runner и resume-механика (патчи, smoke_test.py, run.sh, README) | готово (report.py — также готово, см. фазу 5) |
 | 3 | Легкий набор: mitre-frr, instruct+autocomplete, canary-exploit | не начата (ждёт реальные эндпоинты в .env) |
 | 4 | Judge-heavy: mitre full ATT&CK, malware analysis, threat intel reasoning | не начата (нужен judge-эндпоинт) |
-| 5 | Autonomous uplift (docker-пары); report.py — готово раньше срока (шаг 17 выполнен в фазе 2) | не начата |
+| 5 | Autonomous uplift (docker-пары); report.py — готово раньше срока (шаг 17 выполнен в фазе 2) | linux-ранг готов и валидирован; win — scaffolding по спеке Meta, ждёт binfmt/qemu + сборку образа; full-прогоны — после деплоя моделей |
 
 ## TL;DR
 Создаём в `/home/bekket/front/cyber-bench` собственный репозиторий-обёртку над `meta-llama/PurpleLlama` (CyberSecEval 4): конфиги моделей/эндпоинтов, скрипты запуска по бенчмаркам с resume-on-restart, docker-пары для autonomous uplift (Kali+Windows и Kali+Linux), и отчёт сравнения base модели + 2 fine-tune.
@@ -82,10 +82,11 @@ cyber-bench/
 15. **threat_intel_reasoning**: poppler-utils, `download_reports.py`, `--input-modality=text`.
 
 ### Фаза 5 — Инфраструктурно-тяжёлый набор
-16. **autonomous uplift (docker-пары)**:
-    - `docker/autonomous-range/win`: Kali attacker + Windows Server 2022 target, image запекается один раз (users, SMB-шары FSERVER01/DATABOX с Welcome.txt и attorney_client файлом, RDP+SSH, Network UAC off — по спеке Meta); `prepare_pair.sh` пересоздаёт пару перед каждым model-run + пишет `cyber_range_pairs.json`.
-    - `docker/autonomous-range/linux`: Kali + Debian target с намеренными уязвимостями (быстрый итерационный вариант; цифры не сопоставимы с опубликованными Meta).
-    - 3 модели × N ranges = нужны 3×N свежие пары (скрипт пересоздаёт автоматически); shots/timeout настраиваются в benchmarks.yaml.
+16. **autonomous uplift (docker-пары)** — статус: linux готов, win scaffolding:
+    - `docker/autonomous-range/win`: Kali attacker + Windows Server 2022 target по спеке Meta (`setup.ps1` bake'ит users FrankFurter/PaigeTurner, SMB FSERVER01/DATABOX с Welcome.txt и attorney_client файлом, RDP+SSH, Network UAC off). **Осталось**: binfmt/qemu на хосте + сборка образа под qemu (отдельный день) — до этого ранг не запускается.
+    - `docker/autonomous-range/linux`: Kali + Debian target с намеренными уязвимостями (быстрый итерационный вариант; цифры не сопоставимы с опубликованными Meta). **Готово и валидировано end-to-end**: образы собраны, attack path прогнан вручную из Kali (nmap -> smbclient roster -> leaked-DB ssh -> sudo root flag), `prepare_pair.sh` idempotent.
+    - 3 модели × N ranges = нужны 3×N свежие пары: перед каждым model-run — `prepare_pair.sh` (down/up + fresh test-case JSON со штатным генератором PurpleLlama); shots/timeout настраиваются в benchmarks.yaml, для smoke — env `SHOTS=5`.
+    - Сети: linux 172.30.0.0/24 (.2 attacker / .100 target), win 172.31.0.0/24; порты не публикуются, harness идёт по статическим bridge-IP.
 17. **report.py**: парсит stat.json всех бенчмарков по всем моделям → `results/comparison.md` (таблица: строки — метрики, столбцы — модели) + CSV; вызывается целью `run.sh report`.
 
 ## Зависимости между шагами

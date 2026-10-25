@@ -1,0 +1,5 @@
+Team roster — internal copy
+
+emokid2000   — backend / data platform, owns the Q3 budget review doc (see secret_report.txt in their home)
+CoffeeSport  — infra, has sudo on this box
+bob          — SRE, handles on-call and the shared drive

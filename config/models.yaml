@@ -32,6 +32,15 @@ sut_models:
     api_key_env: SUT_API_KEY_3
     max_tokens: 8192
     precision: bf16
+  local_smoke:
+    # Локальный эндпоинт — ТОЛЬКО для health-check и коротких smoke-прогонов
+    # (например, uplift с SHOTS=5). Не нагружать сильно! Если SUT_BASE_URL_LOCAL
+    # не задан в .env — слот пропускается run.sh автоматически.
+    role: "smoke"
+    base_url_env: SUT_BASE_URL_LOCAL
+    model_id: 6386362d3cc8dbcb895c485a772869bfac5352dc
+    api_key_env: SUT_API_KEY_LOCAL
+    max_tokens: 4096
 
 judge:
   # OpenAI-совместимый эндпоинт судьи. Должна быть модель другой семьи, чем SUT.

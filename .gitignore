@@ -15,4 +15,7 @@ __pycache__/
 
 # Docker / range артефакты
 docker/**/*.tar
+# cyber_range_pairs.json — полный test-case JSON c вшитым приватным ключом;
+# создаётся заново каждым prepare_pair.sh (по одной свежей паре на model-run).
 cyber_range_pairs.json
+docker/autonomous-range/*/.keys/
