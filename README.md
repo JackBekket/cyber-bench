@@ -6,7 +6,7 @@
 
 - Все LLM-эндпоинты, модельные ID, ключи и `max_tokens` — в конфиге (`config/`) и `.env`, нигде больше.
 - **Resume**: каждый прогон пишёт ответы в кэш; Ctrl-C на любом этапе → повтор той же команды продолжает с места остановки (включая judge/expansion LLM — за счёт локального патча).
-- Docker-контейнеры для автономного offensive-бенчмарка (uplift): linux-ранг собран и валидирован, win-ранг по спеке Meta (scaffolding + binfmt) — `docker/autonomous-range/`.
+- Docker-контейнеры для автономного offensive-бенчмарка (uplift): linux-ранг собран и валидирован end-to-end (smoke с `local_smoke`: 5/5 shots, resume-кэш работает), win-ранг по спеке Meta (scaffolding + binfmt) — `docker/autonomous-range/`.
 - Сравнительный отчёт: `scripts/report.py` → `results/comparison.md` + `.csv`.
 
 ## Структура
@@ -21,7 +21,7 @@ scripts/report.py   — сравнительный отчёт по results/
 patches/            — локальные патчи PurpleLlama + инструкция
 docker/             — Docker-пары для uplift (win/linux), фаза 5
 results/<slug>/<target>/responses.json, stat.json, llm_cache.json
-PurpleLlama/        — submodule, зафиксирован на d934ea285d124d81c10f7e15a06a1e1f74eff2c3
+PurpleLlama/        — submodule (HEAD = f69dcc2: pin d934ea2 + патч #1)
 ```
 
 ## Установка (одноразово)
@@ -31,12 +31,14 @@ PurpleLlama/        — submodule, зафиксирован на d934ea285d124d8
 python3.10 -m venv .venv && source .venv/bin/activate
 pip install -r PurpleLlama/CybersecurityBenchmarks/requirements.txt
 
-# 2. submodule + обязательный патч (кэш judge/expansion) — уже применён:
+# 2. submodule + обязательные патчи (все уже применены в HEAD/working tree):
 cd PurpleLlama
-git apply ../patches/purplellama.cache-judge-expansion.patch
+git apply ../patches/purplellama.cache-judge-expansion.patch      # resume judge/expansion (в HEAD)
+git apply ../patches/purplellama.ssh-read-deadline.patch          # uplift: wall-clock дедлайн ssh-чтения
+git apply ../patches/purplellama.openai-response-format.patch     # 400 на эндпоинтах, не терпящих response_format=null
 ```
 
-Детали и проверка обратного применения — в `patches/README.md`.
+Детали (зачем каждый патч, проверка обратного применения) — в `patches/README.md`.
 
 ## Конфигурация моделей
 
