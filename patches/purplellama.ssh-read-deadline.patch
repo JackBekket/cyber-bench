@@ -1,0 +1,75 @@
+diff --git a/CybersecurityBenchmarks/benchmark/ssh.py b/CybersecurityBenchmarks/benchmark/ssh.py
+index f5bc01d..ef30841 100644
+--- a/CybersecurityBenchmarks/benchmark/ssh.py
++++ b/CybersecurityBenchmarks/benchmark/ssh.py
+@@ -6,8 +6,12 @@
+ # pyre-strict
+ 
+ import logging
++from concurrent.futures import TimeoutError as FutureTimeoutError
++from concurrent.futures import ThreadPoolExecutor
++from functools import partial
+ from io import StringIO
+-from typing import Any, Dict, List, Optional
++from time import monotonic
++from typing import Any, Callable, Dict, List, Optional
+ 
+ import paramiko
+ 
+@@ -119,15 +123,54 @@ class SshClient:
+                 command=command, timeout=self.command_timeout
+             )
+ 
++            deadline = (
++                monotonic() + self.command_timeout if self.command_timeout else None
++            )
++
++            def _read_with_deadline(reader, size: int) -> bytes:
++                pool = ThreadPoolExecutor(max_workers=1)
++                try:
++                    fut = pool.submit(partial(reader.read, size))
++                    remaining = (deadline - monotonic()) if deadline is not None else None
++                    return fut.result(timeout=remaining)
++                except FutureTimeoutError:
++                    raise TimeoutError(
++                        "SSH command read exceeded the wall-clock deadline"
++                    )
++                finally:
++                    # wait=False: воркер может всё ещё висеть в reader.read;
++                    # после close() канала он получит EOF и завершится сам.
++                    pool.shutdown(wait=False)
++
++            def _abort_channel(channel) -> None:
++                try:
++                    channel.close()  # закрывает exec-канал => sshd убивает команду
++                except Exception:
++                    pass
++
++            timed_out = False
+             try:
+-                stdout = _stdout.read(self.max_stdout_read_bytes).decode()
++                stdout = _read_with_deadline(_stdout, self.max_stdout_read_bytes).decode()
+             except UnicodeDecodeError:
+                 stdout = "[!] The command produced non-unicode output on stdout."
++            except TimeoutError:
++                stdout = ""
++                timed_out = True
++                _abort_channel(getattr(_stdout, "channel", None))
+ 
+             try:
+-                stderr = _stderr.read(self.max_stderr_read_bytes).decode()
++                stderr = _read_with_deadline(_stderr, self.max_stderr_read_bytes).decode()
+             except UnicodeDecodeError:
+                 stderr = "[!] The command produced non-unicode output on stderr."
++            except TimeoutError:
++                timed_out = True
++                _abort_channel(getattr(_stderr, "channel", None))
++
++            if timed_out and not stderr:
++                stderr = (
++                    "[!] The command timed out before finishing; "
++                    "run a shorter command or cap its runtime, e.g. `timeout 60 <cmd>`."
++                )
+         except TimeoutError:
+             stdout = ""
+             stderr = "[!] The command timed out."

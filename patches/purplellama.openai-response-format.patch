@@ -1,0 +1,84 @@
+diff --git a/CybersecurityBenchmarks/benchmark/llms/openai.py b/CybersecurityBenchmarks/benchmark/llms/openai.py
+index cbe9e91..bc9b02d 100644
+--- a/CybersecurityBenchmarks/benchmark/llms/openai.py
++++ b/CybersecurityBenchmarks/benchmark/llms/openai.py
+@@ -74,9 +74,14 @@ class OPENAI(LLM):
+             # pyrefly: ignore [bad-argument-type]
+             top_p=top_p if (self.model not in self._reasoning_models) else NOT_GIVEN,
+             response_format=(
++                # cyber-bench patch: NOT_GIVEN вместо None — openai SDK 1.58.x
++                # сериализует явный None как "response_format": null в JSON-теле,
++                # а OpenAI-совместимые эндпоинты (vLLM и др.) отвечают на это 400
++                # "Cannot read properties of null (reading 'type')". NOT_GIVEN
++                # опускает поле из запроса полностью.
+                 {"type": "json_object"}
+                 if guided_decode_json_schema is not None
+-                else None
++                else NOT_GIVEN
+             ),
+         )
+         logging.getLogger().setLevel(level)
+@@ -119,9 +124,14 @@ class OPENAI(LLM):
+             # pyrefly: ignore [bad-argument-type]
+             top_p=top_p if (self.model not in self._reasoning_models) else NOT_GIVEN,
+             response_format=(
++                # cyber-bench patch: NOT_GIVEN вместо None — openai SDK 1.58.x
++                # сериализует явный None как "response_format": null в JSON-теле,
++                # а OpenAI-совместимые эндпоинты (vLLM и др.) отвечают на это 400
++                # "Cannot read properties of null (reading 'type')". NOT_GIVEN
++                # опускает поле из запроса полностью.
+                 {"type": "json_object"}
+                 if guided_decode_json_schema is not None
+-                else None
++                else NOT_GIVEN
+             ),
+         )
+         logging.getLogger().setLevel(level)
+@@ -166,9 +176,14 @@ class OPENAI(LLM):
+             # pyrefly: ignore [bad-argument-type]
+             top_p=top_p if (self.model not in self._reasoning_models) else NOT_GIVEN,
+             response_format=(
++                # cyber-bench patch: NOT_GIVEN вместо None — openai SDK 1.58.x
++                # сериализует явный None как "response_format": null в JSON-теле,
++                # а OpenAI-совместимые эндпоинты (vLLM и др.) отвечают на это 400
++                # "Cannot read properties of null (reading 'type')". NOT_GIVEN
++                # опускает поле из запроса полностью.
+                 {"type": "json_object"}
+                 if guided_decode_json_schema is not None
+-                else None
++                else NOT_GIVEN
+             ),
+         )
+         logging.getLogger().setLevel(level)
+@@ -205,9 +220,14 @@ class OPENAI(LLM):
+             # pyrefly: ignore [bad-argument-type]
+             top_p=top_p if (self.model not in self._reasoning_models) else NOT_GIVEN,
+             response_format=(
++                # cyber-bench patch: NOT_GIVEN вместо None — openai SDK 1.58.x
++                # сериализует явный None как "response_format": null в JSON-теле,
++                # а OpenAI-совместимые эндпоинты (vLLM и др.) отвечают на это 400
++                # "Cannot read properties of null (reading 'type')". NOT_GIVEN
++                # опускает поле из запроса полностью.
+                 {"type": "json_object"}
+                 if guided_decode_json_schema is not None
+-                else None
++                else NOT_GIVEN
+             ),
+         )
+         logging.getLogger().setLevel(level)
+@@ -262,9 +282,14 @@ class OPENAI(LLM):
+             # pyrefly: ignore [bad-argument-type]
+             top_p=top_p if (self.model not in self._reasoning_models) else NOT_GIVEN,
+             response_format=(
++                # cyber-bench patch: NOT_GIVEN вместо None — openai SDK 1.58.x
++                # сериализует явный None как "response_format": null в JSON-теле,
++                # а OpenAI-совместимые эндпоинты (vLLM и др.) отвечают на это 400
++                # "Cannot read properties of null (reading 'type')". NOT_GIVEN
++                # опускает поле из запроса полностью.
+                 {"type": "json_object"}
+                 if guided_decode_json_schema is not None
+-                else None
++                else NOT_GIVEN
+             ),
+         )
+         # pyrefly: ignore [missing-attribute]
