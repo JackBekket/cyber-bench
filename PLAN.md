@@ -10,7 +10,7 @@
 | 2 | Runner и resume-механика (патчи, smoke_test.py, run.sh, README) | готово (report.py — также готово, см. фазу 5) |
 | 3 | Легкий набор: mitre-frr, instruct+autocomplete, canary-exploit | не начата (ждёт реальные эндпоинты в .env) |
 | 4 | Judge-heavy: mitre full ATT&CK, malware analysis, threat intel reasoning | не начата (нужен judge-эндпоинт) |
-| 5 | Autonomous uplift (docker-пары); report.py — готово раньше срока (шаг 17 выполнен в фазе 2) | linux-ранг готов и валидирован; win — scaffolding по спеке Meta, ждёт binfmt/qemu + сборку образа; full-прогоны — после деплоя моделей |
+| 5 | Autonomous uplift (docker-пары); report.py — готово раньше срока (шаг 17 выполнен в фазе 2) | linux-ранг готов, валидирован end-to-end + smoke с `local_smoke` пройден (5/5 shots, resume-кэш и патчи #3/#4 проверены live); win — scaffolding по спеке Meta, ждёт binfmt/qemu + сборку образа; full-прогоны трёх моделей — после деплоя |
 
 ## TL;DR
 Создаём в `/home/bekket/front/cyber-bench` собственный репозиторий-обёртку над `meta-llama/PurpleLlama` (CyberSecEval 4): конфиги моделей/эндпоинтов, скрипты запуска по бенчмаркам с resume-on-restart, docker-пары для autonomous uplift (Kali+Windows и Kali+Linux), и отчёт сравнения base модели + 2 fine-tune.
@@ -35,7 +35,7 @@
 ```
 cyber-bench/
 ├── PLAN.md                       # документ плана реализации в самом репозитории (зеркало этого плана; обновляется при изменениях)
-├── PurpleLlama/                  # git submodule, зафиксированный commit + локальные патчи (diff)
+├── PurpleLlama/                  # git submodule: HEAD = f69dcc2 (pin d934ea2 + патч #1); working tree несёт патчи #3/#4
 ├── config/
 │   ├── models.yaml               # модели SUT + judge/expansion: slug -> {base_url_env, model_id, api_key_env, max_tokens}
 │   └── benchmarks.yaml           # переключатели бенчмарков, parallelism, опции per-benchmark
@@ -45,8 +45,10 @@ cyber-bench/
 │   ├── smoke_test.py             # health-check эндпоинта + N тестовых запросов через spec-формат
 │   └── report.py                 # агрегирует results/*/stat*.json всех моделей -> comparison.md + comparison.csv
 ├── patches/
-│   ├── README.md                 # инструкция по применению/проверке патчей
-│   └── purplellama.cache-judge-expansion.patch  # кэш для judge/expansion (обязательный)
+│   ├── README.md                 # инструкция: зачем каждый патч, применение, проверка обратного применения
+│   ├── purplellama.cache-judge-expansion.patch  # #1 кэш judge/expansion (в HEAD f69dcc2)
+│   ├── make_ssh_read_deadline_patch.py + purplellama.ssh-read-deadline.patch        # #3 wall-clock дедлайн ssh-чтения (обязателен для uplift)
+│   └── make_openai_response_format_patch.py + purplellama.openai-response-format.patch  # #4 response_format=null → NOT_GIVEN (обязателен для локальных эндпоинтов)
 ├── docker/autonomous-range/
 │   ├── win/                      # compose: kali attacker + windows server 2022 (custom image)
 │   │   ├── Dockerfile.target     # users FrankFurter/PaigeTurner, SMB FSERVER01/DATABOX, RDP+SSH, Network UAC off
@@ -65,7 +67,7 @@ cyber-bench/
 4. Заполнить `config/models.yaml`: base модель + 2 fine-tune (SUT), judge, expansion (по умолчанию = judge). Ключи из env.
 
 ### Фаза 2 — Runner и resume-механика
-5. Локальные патчи PurpleLlama (держать как diff): (a) навесить `CacheHandler` на judge/expansion LLM в `run.py`; (b) при необходимости имена моделей в `valid_models()` openai.py. Патч-файл + инструкция применения в README.
+5. Локальные патчи PurpleLlama: (a) #1 — навесить `CacheHandler` на judge/expansion LLM в `run.py` (запечён в HEAD submodule f69dcc2); (b) при необходимости имена моделей в `valid_models()` openai.py (опционально, не применён). В ходе uplift-смoke нашлись ещё два upstream-бага → обязательные патчи: #3 ssh-read-deadline (wall-clock дедлайн чтения SSH — без него harness виснет на долгих командах модели) и #4 openai-response-format (SDK сериализует явный `None` как `"response_format": null` → 400 на локальных эндпоинтах; заменено на `NOT_GIVEN`). Все патчи + генераторы + инструкция — в `patches/`. 
 6. `scripts/smoke_test.py`: проверка эндпоинта SUT и judge (GET /v1/models + 3 запроса), вывод latencies — первый контакт с облачным GPU ещё до прогона.
 7. `run.sh`: читает models.yaml/benchmarks.yaml, для каждой модели строит CLI-вызовы PurpleLlama c путями `results/<model>/<bench>/...` и ВСЕГДА передаёт `--enable-cache --cache-file=results/<model>/<bench>/llm_cache.json`. Для canary: один раз сгенерировать challenge (datasets.canary_exploit.run), затем все модели по одному prompt-файлу.
 8. Документировать resume в README: Ctrl-C в любой момент → рестарт продолжает через кэш; для длинных бенчмарков двухшаговый режим (`--only-generate-llm-responses`, затем `--use-precomputed-responses`).
@@ -84,7 +86,7 @@ cyber-bench/
 ### Фаза 5 — Инфраструктурно-тяжёлый набор
 16. **autonomous uplift (docker-пары)** — статус: linux готов, win scaffolding:
     - `docker/autonomous-range/win`: Kali attacker + Windows Server 2022 target по спеке Meta (`setup.ps1` bake'ит users FrankFurter/PaigeTurner, SMB FSERVER01/DATABOX с Welcome.txt и attorney_client файлом, RDP+SSH, Network UAC off). **Осталось**: binfmt/qemu на хосте + сборка образа под qemu (отдельный день) — до этого ранг не запускается.
-    - `docker/autonomous-range/linux`: Kali + Debian target с намеренными уязвимостями (быстрый итерационный вариант; цифры не сопоставимы с опубликованными Meta). **Готово и валидировано end-to-end**: образы собраны, attack path прогнан вручную из Kali (nmap -> smbclient roster -> leaked-DB ssh -> sudo root flag), `prepare_pair.sh` idempotent.
+    - `docker/autonomous-range/linux`: Kali + Debian target с намеренными уязвимостями (быстрый итерационный вариант; цифры не сопоставимы с опубликованными Meta). **Готово и валидировано end-to-end**: образы собраны, attack path прогнан вручную из Kali (nmap -> smbclient roster -> leaked-DB ssh -> sudo root flag), `prepare_pair.sh` idempotent. **Smoke с моделью пройден** (`local_smoke`, SHOTS=5): 5/5 shots за ~4 мин, модель сама пошла nmap → smbclient → sshpass; resume-кэш (6 ответов) и патчи #3/#4 подтверждены live.
     - 3 модели × N ranges = нужны 3×N свежие пары: перед каждым model-run — `prepare_pair.sh` (down/up + fresh test-case JSON со штатным генератором PurpleLlama); shots/timeout настраиваются в benchmarks.yaml, для smoke — env `SHOTS=5`.
     - Сети: linux 172.30.0.0/24 (.2 attacker / .100 target), win 172.31.0.0/24; порты не публикуются, harness идёт по статическим bridge-IP.
 17. **report.py**: парсит stat.json всех бенчмарков по всем моделям → `results/comparison.md` (таблица: строки — метрики, столбцы — модели) + CSV; вызывается целью `run.sh report`.
