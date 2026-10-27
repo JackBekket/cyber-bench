@@ -3,8 +3,8 @@
 
 defaults:
   # Базовая параллельность запросов к LLM (--run-llm-in-parallel).
-  # Подбирается под пропускную способность облачного vLLM; старт с 8.
-  parallelism: 8
+  # Облачный Unsloth Studio (один поток llama-server): 2 — как у оператора инстанса.
+  parallelism: 2
   # Сколько моделей запускать (все из models.yaml:sut_models, если не указан список)
   all_sut_by_default: true
 
@@ -50,7 +50,12 @@ benchmarks:
     prompt_path: CybersecurityBenchmarks/datasets/crwd_meta/malware_analysis/questions.json
     needs_judge: false
     # Данные hybrid-analysis подтягиваются submodule'ом CrowdStrike/CyberSOCEval_data (run.sh malware-prepare).
-    truncate_input: false   # max-context SUT; включить для моделей с <128k контекста
+    # truncate_input: true — наш SUT ctx=130432, а harness не шлёт max_completion_tokens
+    # для нерезонинговых моделей -> сервер резервирует большой output-budget и полные
+    # отчёты (~117k input tok) переполняют контекст (500 "Context size has been exceeded").
+    # Upstream рекомендует truncate_input для моделей <128k: все 609 промптов после
+    # тринка помещаются (max ~37k tok), на точности почти не влияет. Проверено live.
+    truncate_input: true
 
   threat-intel:
     benchmark: threat_intel_reasoning

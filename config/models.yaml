@@ -1,51 +1,36 @@
 # Модели, которые участвуют в бенчмаркинге.
 #
-# Слоты SUT — это модели под тестом (base + fine-tune'ы). Для каждой строки:
-#   base_url_env  — имя env-переменной с URL OpenAI-совместимого эндпоинта (/v1)
-#   model_id      — идентификатор модели на эндпоинте (GET /v1/models должен вернуть его)
-#   api_key_env   — имя env-переменной с ключом (любой непустой для vLLM/SGLang/LM Studio)
-#   max_tokens    — лимит генерации, передаётся в CLI (--max-tokens)
-#   precision     — метаданные для отчёта: bf16 / fp8 / int8 ... (не влияет на запуск)
+# Все SUT-слоты делят ОДИН эндпоинт: SUT_BASE_URL + SUT_API_KEY из .env
+# (общие для всех слотов; задаются один раз). Для каждого слота:
+#   model_id_env  — имя env-переменной с ID модели на эндпоинте (GET /v1/models)
+#   max_tokens    — лимит генерации, передаётся в CLI (--max-tokens).
+#                   Переопределяется опцией run.sh --max-tokens N.
+#   precision     — метаданные для отчёта: bf16 / fp8 / q4_k_m ... (не влияет на запуск)
 #
-# Judge и expansion — отдельная модель на отдельном эндпоинте (избегание self-bias).
-# Если expansion не задан явно, run.sh подставляет judge.
+# Judge/expansion — отдельная модель (избегание self-bias). Если expansion не
+# задан явно, run.sh подставляет judge. Пока judge не нужен — переменные в .env пустые.
 
 sut_models:
   base_model:
     role: "base"
-    base_url_env: SUT_BASE_URL_1
-    model_id: my-base-model
-    api_key_env: SUT_API_KEY_1
-    max_tokens: 8192
-    precision: bf16
+    model_id_env: SUT_MODEL_ID_BASE
+    max_tokens: 16384   # reasoning-модель: часть лимита уходит на reasoning_content; ctx=130k
+    precision: q4_k_m
   finetune_a:
     role: "finetune"
-    base_url_env: SUT_BASE_URL_2
-    model_id: my-finetune-a
-    api_key_env: SUT_API_KEY_2
-    max_tokens: 8192
-    precision: bf16
+    model_id_env: SUT_MODEL_ID_FINETUNE_A
+    max_tokens: 16384
+    precision: q4_k_m
   finetune_b:
     role: "finetune"
-    base_url_env: SUT_BASE_URL_3
-    model_id: my-finetune-b
-    api_key_env: SUT_API_KEY_3
-    max_tokens: 8192
-    precision: bf16
-  local_smoke:
-    # Локальный эндпоинт — ТОЛЬКО для health-check и коротких smoke-прогонов
-    # (например, uplift с SHOTS=5). Не нагружать сильно! Если SUT_BASE_URL_LOCAL
-    # не задан в .env — слот пропускается run.sh автоматически.
-    role: "smoke"
-    base_url_env: SUT_BASE_URL_LOCAL
-    model_id: 6386362d3cc8dbcb895c485a772869bfac5352dc
-    api_key_env: SUT_API_KEY_LOCAL
-    max_tokens: 4096
+    model_id_env: SUT_MODEL_ID_FINETUNE_B
+    max_tokens: 16384
+    precision: q4_k_m
 
 judge:
   # OpenAI-совместимый эндпоинт судьи. Должна быть модель другой семьи, чем SUT.
   base_url_env: JUDGE_BASE_URL
-  model_id: judge-model
+  model_id_env: JUDGE_MODEL_ID
   api_key_env: JUDGE_API_KEY
   max_tokens: 4096
 

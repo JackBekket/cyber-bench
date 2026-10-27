@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Smoke-тест эндпоинтов SUT и judge до прогона бенчмарков.
 
-Для каждой модели из config/models.yaml:
+Все SUT-модели делят один эндпоинт (SUT_BASE_URL/SUT_API_KEY из .env);
+model_id каждого слота читается из env по model_id_env в models.yaml.
+Слоты с пустым/плейсхолдерным (*-pending) ID пропускаются.
+
+Для каждой модели:
   1. GET <base_url>/models — эндпоинт жив, model_id есть в списке;
   2. 3 тестовых запроса через штатный LLM-слой PurpleLlama (spec-формат
      OPENAI::<model>::<key>::<base-url>) с замером latency каждого.
@@ -61,15 +65,29 @@ def http_get_models(base_url: str, api_key: str, timeout: float = 15.0):
         return False, str(e)
 
 
-def build_llm(model_cfg: dict):
+def resolve_endpoint(model_cfg: dict):
+    """Возвращает (base_url_env, api_key_env, model_id).
+
+    SUT-слоты делят один эндпоинт (SUT_BASE_URL/SUT_API_KEY), а модельный ID
+    читают из env-переменной по model_id_env. Judge/expansion — собственные поля.
+    """
+    if "base_url_env" in model_cfg:
+        base_url_env = model_cfg["base_url_env"]
+        api_key_env = model_cfg.get("api_key_env", "")
+    else:  # SUT-слот
+        base_url_env, api_key_env = "SUT_BASE_URL", "SUT_API_KEY"
+    mid_env = model_cfg.get("model_id_env")
+    model_id = (os.environ.get(mid_env, "") if mid_env else model_cfg.get("model_id", "")) or ""
+    return base_url_env, api_key_env, model_id
+
+
+def build_llm(base_url: str, api_key: str, model_id: str, max_tokens: int):
     """Создаёт LLM через штатный фабрик PurpleLlama (spec-формат)."""
     sys.path.insert(0, str(PURPLELLAMA_DIR))
     from CybersecurityBenchmarks.benchmark.llm import create
 
-    base_url = os.environ[model_cfg["base_url_env"]]
-    api_key = os.environ.get(model_cfg["api_key_env"], "sk-dummy") or "sk-dummy"
-    spec = f"OPENAI::{model_cfg['model_id']}::{api_key}::{base_url}"
-    return create(spec, int(model_cfg.get("max_tokens", 2048)))
+    spec = f"OPENAI::{model_id}::{api_key}::{base_url}"
+    return create(spec, int(max_tokens))
 
 
 SMOKE_PROMPTS = [
@@ -80,14 +98,16 @@ SMOKE_PROMPTS = [
 
 
 def check_model(name: str, model_cfg: dict) -> bool:
-    base_url_env = model_cfg["base_url_env"]
-    if base_url_env not in os.environ:
+    base_url_env, api_key_env, model_id = resolve_endpoint(model_cfg)
+    if not os.environ.get(base_url_env, ""):
         print(f"  [SKIP] {name}: env {base_url_env} не задан (заполните .env)")
         return True  # skip, не failure — допустимо проверить только часть моделей
+    if not model_id or model_id.endswith("-pending"):
+        print(f"  [SKIP] {name}: model_id '{model_id}' пуст/плейсхолдер — модель ещё не загружена")
+        return True
 
     base_url = os.environ[base_url_env]
-    api_key = os.environ.get(model_cfg["api_key_env"], "sk-dummy") or "sk-dummy"
-    model_id = model_cfg["model_id"]
+    api_key = os.environ.get(api_key_env, "sk-dummy") or "sk-dummy"
 
     print(f"\n=== {name} ({model_id}) @ {base_url}")
 
@@ -108,7 +128,7 @@ def check_model(name: str, model_cfg: dict) -> bool:
         )
 
     try:
-        llm = build_llm(model_cfg)
+        llm = build_llm(base_url, api_key, model_id, model_cfg.get("max_tokens", 2048))
     except Exception as e:  # noqa: BLE001
         print(f"  [FAIL] создание LLM-объекта: {e}")
         return False

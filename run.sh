@@ -104,17 +104,23 @@ print((data.get("defaults") or {}).get("parallelism", ""))
 EOF
 }
 
-emit_model_specs() { # -> строки "slug<TAB>spec<TAB>max_tokens" (spec пуст, если env URL не задан)
+emit_model_specs() { # -> строки "slug\x1f spec \x1f max_tokens" (spec пуст, если эндпоинт/model_id не заданы)
+  # Делитель — US (0x1f), НЕ TAB: IFS=$'\t' read схлопывает повторяющиеся табы
+  # и при пустом spec сдвигает колонки (maxtok="", spec=max_tokens).
   "$PY" - "$MODELS_YAML" "${MODEL_SLUGS:-}" <<'EOF'
 import os, sys, yaml
 data = yaml.safe_load(open(sys.argv[1])) or {}
 only = [s.strip() for s in (sys.argv[2].split(",") if len(sys.argv) > 2 and sys.argv[2] else []) if s.strip()]
 for slug, cfg in (data.get("sut_models") or {}).items():
     if only and slug not in only: continue
-    base_url = os.environ.get(cfg["base_url_env"], "") or ""
-    key = os.environ.get(cfg.get("api_key_env", ""), "") or "sk-dummy"
-    spec = f"OPENAI::{cfg['model_id']}::{key}::{base_url}" if base_url else ""
-    print(f"{slug}\t{spec}\t{cfg.get('max_tokens', 2048)}")
+    # SUT-слоты делят один эндпоинт (SUT_BASE_URL/SUT_API_KEY); ID — из env.
+    base_url = os.environ.get(cfg.get("base_url_env", "SUT_BASE_URL"), "") or ""
+    key = os.environ.get(cfg.get("api_key_env", "SUT_API_KEY"), "") or "sk-dummy"
+    mid_env = cfg.get("model_id_env")
+    model_id = (os.environ.get(mid_env, "") if mid_env else cfg.get("model_id", "")) or ""
+    # Пустой ID или плейсхолдер *-pending -> слот пропускается.
+    spec = f"OPENAI::{model_id}::{key}::{base_url}" if base_url and model_id and not model_id.endswith("-pending") else ""
+    print(f"{slug}\x1f{spec}\x1f{cfg.get('max_tokens', 2048)}")
 EOF
 }
 
@@ -130,9 +136,11 @@ else:
 if not cfg:
     print("")
 else:
-    base_url = os.environ.get(cfg["base_url_env"], "") or ""
+    base_url = os.environ.get(cfg.get("base_url_env", ""), "") or ""
     key = os.environ.get(cfg.get("api_key_env", ""), "") or "sk-dummy"
-    print(f"OPENAI::{cfg['model_id']}::{key}::{base_url}" if base_url else "")
+    mid_env = cfg.get("model_id_env")
+    model_id = (os.environ.get(mid_env, "") if mid_env else cfg.get("model_id", "")) or ""
+    print(f"OPENAI::{model_id}::{key}::{base_url}" if base_url and model_id else "")
 EOF
 }
 
@@ -148,7 +156,7 @@ run_one() { # run_one <slug> <spec> <maxtok> <target>
   modality="$(cfg_get "$target" input_modality)"
 
   if [[ -z "$bench" ]]; then echo "[SKIP] $target: нет поля 'benchmark' в benchmarks.yaml" >&2; return 0; fi
-  if [[ -z "$spec" ]]; then echo "[SKIP] $slug/$target: env-URL модели не задан (заполните .env)" >&2; return 0; fi
+  if [[ -z "$spec" ]]; then echo "[SKIP] $slug/$target: эндпоинт (SUT_BASE_URL) или model_id не заданы в .env" >&2; return 0; fi
 
   parallel="${PARALLEL_OVERRIDE:-$(cfg_get "$target" parallelism)}"
   [[ -n "$parallel" ]] || parallel="$(default_parallel)"
@@ -279,7 +287,7 @@ FAILURES=0
 run_targets() { # run_targets <bench-target>...  — по всем выбранным моделям
   local t
   for t in "$@"; do
-    while IFS=$'\t' read -r slug spec maxtok; do
+    while IFS=$'\x1f' read -r slug spec maxtok; do
       [[ -z "${slug:-}" ]] && continue
       if ! run_one "$slug" "$spec" "$maxtok" "$t"; then FAILURES=$((FAILURES+1)); fi
     done < <(emit_model_specs)

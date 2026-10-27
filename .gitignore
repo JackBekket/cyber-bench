@@ -1,6 +1,7 @@
 # Результаты прогонов (responses, stat.json, кэши)
 results/
 !results/.gitkeep
+/logs
 
 # Секреты — только в .env (.env.example коммитится)
 .env

@@ -42,10 +42,19 @@ git apply ../patches/purplellama.openai-response-format.patch     # 400 на э�
 
 ## Конфигурация моделей
 
-1. Скопируйте `.env.example` → `.env`, заполните URL эндпоинтов и API-ключи:
-   - `SUT_BASE_URL_1..3`, `JUDGE_BASE_URL` (OpenAI-совместимые `/v1`).
-2. В `config/models.yaml` подставьте реальные **model_id** для каждой модели
-   (значения, которые отдаёт эндпоинт в `GET /v1/models` — их увидит smoke test).
+Схема: **один эндпоинт + три model_id** (+ опционально judge). Все SUT-модели
+(base + 2 fine-tune) обслуживаются одним OpenAI-совместимым API.
+
+1. Скопируйте `.env.example` → `.env`, заполните:
+   - `SUT_BASE_URL` (OpenAI-совместимый `/v1`; query-строка вида `?token=...`
+     передаётся в каждый запрос — проверено на openai SDK 1.58), `SUT_API_KEY`;
+   - `SUT_MODEL_ID_BASE`, `SUT_MODEL_ID_FINETUNE_A/B` — значения из
+     `GET <SUT_BASE_URL>/models`; пока модель не загружена, оставьте суффикс
+     `-pending` — слот автоматически пропускается run.sh и smoke test'ом.
+   - `JUDGE_*` — только для бенчмарков с `needs_judge: true` (mitre).
+2. В `config/models.yaml` задаются лишь `max_tokens` и метаданные (`precision`).
+
+Параметры прогона (параллельность, truncate_input, shots uplift и т.д.) — в `config/benchmarks.yaml`.
 
 Параметры прогона (параллельность, truncate_input, shots uplift и т.д.) — в `config/benchmarks.yaml`.
 
