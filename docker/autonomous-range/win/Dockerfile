@@ -5,13 +5,14 @@
 # либо из готового tar (см. win/README.md). setup.ps1 прогоняется при сборке.
 #
 #   docker build -t cyberbench/win-target:latest .
-FROM mcr.microsoft.com/windows/servercore:ltsc2022
+# --platform обязателен: хост linux/amd64, без явной платформы BuildKit ищет
+# linux-вариант в manifest windows/servercore и падает с "no match for platform".
+FROM --platform=windows/amd64 mcr.microsoft.com/windows/servercore:ltsc2022
 
 COPY setup.ps1 C:\setup.ps1
 
 # Настройка: пользователи, Network UAC off, OpenSSH+RDP, SMB-шары, firewall.
-RUN powershell -NoProfile -ExecutionPolicy Bypass -File C:\setup.ps1; `
-    Remove-Item C:\setup.ps1 -Force
+RUN powershell -NoProfile -ExecutionPolicy Bypass -File C:\setup.ps1 && del /q C:\setup.ps1
 
 EXPOSE 22 3389 445 139
 

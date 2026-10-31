@@ -3,7 +3,9 @@
 
 defaults:
   # Базовая параллельность запросов к LLM (--run-llm-in-parallel).
-  # Облачный Unsloth Studio (один поток llama-server): 2 — как у оператора инстанса.
+  # Облачный Unsloth Studio: llama-server запущен с --parallel 2 (x2 RTX 5090) —
+  # держим 2, чтобы занять все слоты. Если gen_tok_s заметно проседает или
+  # появятся OOM/499 — вернуть в 2 (см. /memories/repo/vast-ai-inference.md).
   parallelism: 2
   # Сколько моделей запускать (все из models.yaml:sut_models, если не указан список)
   all_sut_by_default: true

@@ -5,9 +5,9 @@
 #   canary-gen (один раз, 100 кейсов — общий challenge для всех моделей)
 #     -> malware-prepare (submodule hybrid-analysis, один раз)
 #     -> threat-intel-prepare (PDF->TXT отчёты, один раз)
-#     -> по каждой модели: canary -> malware -> threat-intel
-#        -> uplift-linux (пересоздание пары prepare_pair.sh перед прогоном)
-#        -> uplift-win   (только если pairs-файл уже создан; иначе skip с заметкой)
+#     -> по каждой модели: бенчмарки в порядке BENCH_ORDER
+#        (по умолчанию лёгкие сначала: malware -> threat-intel; canary — последним,
+#         т.к. самый долгий; uplift-linux/uplift-win — отдельными шагами после)
 #
 # Всё resume-safe: run.sh всегда пишет --enable-cache --cache-file, повтор той же
 # команды продолжает из кэша. Ошибки этапа не останавливают остальные этапы —
@@ -28,6 +28,34 @@ MALWARE_DATA="$PL_DIR/CybersecurityBenchmarks/datasets/crwd_meta/malware_analysi
 TI_DIR="$PL_DIR/CybersecurityBenchmarks/datasets/crwd_meta/threat_intel_reasoning"
 
 declare -a FAILURES=()
+
+# Порядок бенчмарков. По умолчанию лёгкие сначала (malware ~4h, threat-intel ~3.5h,
+# uplift-linux ~10 мин), canary (~3h) — последним: если прогон прервут, готово уже
+# самое дорогое по данным. Переопределяется env: BENCH_ORDER="canary,malware,threat-intel".
+BENCH_ORDER="${BENCH_ORDER:-malware,threat-intel}"
+
+run_bench() { # run_bench <slug> <bench> — canary | malware | threat-intel | uplift-linux | uplift-win
+  local slug="$1" bench="$2"
+  case "$bench" in
+    canary)       run_step "$slug/canary"       ./run.sh canary       --models "$slug" ;;
+    malware)      run_step "$slug/malware"      ./run.sh malware      --models "$slug" ;;
+    threat-intel) run_step "$slug/threat-intel" ./run.sh threat-intel --models "$slug" ;;
+    uplift-linux) # пара пересоздаётся перед каждым прогоном модели (idempotent)
+      if [[ -x "$REPO_ROOT/docker/autonomous-range/linux/prepare_pair.sh" ]]; then
+        run_step "$slug/uplift-linux-prepare" bash docker/autonomous-range/linux/prepare_pair.sh
+        run_step "$slug/uplift-linux" ./run.sh uplift-linux --models "$slug"
+      else
+        echo "[WARN] $slug/uplift-linux: нет prepare_pair.sh — пропускаю." >&2
+        FAILURES+=("$slug/uplift-linux-prepare")
+      fi ;;
+    uplift-win)   if [[ -f "$REPO_ROOT/docker/autonomous-range/win/cyber_range_pairs.json" ]]; then
+                    run_step "$slug/uplift-win" ./run.sh uplift-win --models "$slug"
+                  else
+                    echo "[SKIP] $slug/uplift-win: нет docker/autonomous-range/win/cyber_range_pairs.json (нужны binfmt/qemu + сборка Windows-образа)."
+                  fi ;;
+    *) echo "[WARN] $bench: неизвестный бенчмарк в BENCH_ORDER — пропускаю." >&2 ;;
+  esac
+}
 
 run_step() { # run_step <название> <команда...>  — логирует, копит ошибки
   local name="$1"; shift
@@ -70,18 +98,9 @@ for slug in $(echo "$MODELS" | tr ',' ' '); do
   echo "#### Модель: $slug — полный набор бенчмарков (без judge)"
   echo "###############################################################"
 
-  run_step "$slug/canary"       ./run.sh canary       --models "$slug"
-  run_step "$slug/malware"      ./run.sh malware      --models "$slug"
-  run_step "$slug/threat-intel" ./run.sh threat-intel --models "$slug"
-
-  # uplift-linux: пара пересоздаётся перед каждым прогоном модели (idempotent)
-  if [[ -x "$REPO_ROOT/docker/autonomous-range/linux/prepare_pair.sh" ]]; then
-    run_step "$slug/uplift-linux-prepare" bash docker/autonomous-range/linux/prepare_pair.sh
-    run_step "$slug/uplift-linux" ./run.sh uplift-linux --models "$slug"
-  else
-    echo "[WARN] $slug/uplift-linux: нет prepare_pair.sh — пропускаю." >&2
-    FAILURES+=("$slug/uplift-linux-prepare")
-  fi
+  for bench in $(echo "$BENCH_ORDER" | tr ',' ' '); do
+    run_bench "$slug" "$bench"
+  done
 
   # uplift-win: только если pairs-файл уже создан (binfmt/qemu + образ готовы)
   if [[ -f "$REPO_ROOT/docker/autonomous-range/win/cyber_range_pairs.json" ]]; then
