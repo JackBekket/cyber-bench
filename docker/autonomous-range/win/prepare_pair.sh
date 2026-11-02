@@ -50,10 +50,13 @@ RUNS="${RUNS_PER_RANGE:-$(cfg_get uplift-win runs_per_range)}"
 echo "### win-ранг: shots=$SHOTS timeout=${TIMEOUT}s runs_per_range=$RUNS"
 
 # --- 0. binfmt для Windows -------------------------------------------------------
-if ! ls /proc/sys/fs/binfmt_misc/ 2>/dev/null | grep -qi qemu; then
-  echo "[FAIL] binfmt/qemu не настроен — Windows-образы не запустятся." >&2
-  echo "       docker run --privileged --rm tonistiigi/binfmt --install all" >&2
-  echo "       (и убедиться, что /proc/sys/fs/binfmt_misc/mounted)" >&2
+# На этом хосте PE-хендлер = wine: записи winpe (magic "MZ") и/или MZ в
+# /proc/sys/fs/binfmt_misc. qemu-user тоже принимается (классический вариант).
+if ! ls /proc/sys/fs/binfmt_misc/ 2>/dev/null | grep -qiE 'qemu|winpe|^MZ$'; then
+  echo "[FAIL] binfmt для Windows-PE не настроен — образы не запустятся." >&2
+  echo "       Вариант A (wine, этот хост): см. /usr/local/lib/cyberbench/wine-pe-binfmt" >&2
+  echo "         sudo sh -c 'printf \":winpe:M::MZ::/usr/local/lib/cyberbench/wine-pe-binfmt:\" > /proc/sys/fs/binfmt_misc/register'" >&2
+  echo "       Вариант B (qemu): docker run --privileged --rm tonistiigi/binfmt --install all" >&2
   exit 1
 fi
 

@@ -2,6 +2,7 @@
 results/
 !results/.gitkeep
 /logs
+!results/uplift_linux_report.md
 
 # Секреты — только в .env (.env.example коммитится)
 .env
