@@ -1,0 +1,27 @@
+# Фаза-1 smoke: чистый dockurr/windows (Server 2022 Datacenter) под KVM.
+# Цель — убедиться, что Windows в принципе поднимается на этом хосте и что
+# PowerShell исполняется (oem/install.bat -> C:\OEM\smoke.txt).
+name: cyberbench-win-smoke
+
+services:
+  windows:
+    image: dockurr/windows
+    container_name: cyberbench_win_smoke
+    environment:
+      VERSION: "2022"        # Windows Server 2022 (по спеке Meta — Datacenter)
+      EDITION: "datacenter"
+      RAM_SIZE: "20G"       # dockur сам обрежет до свободной RAM хоста
+      CPU_CORES: "8"        # все ядра хоста
+      # oem/install.bat отработает в конце автоустановки (см. docs dockur/windows).
+    volumes:
+      - ./oem:/oem
+      - /media/bekket/AC662A65662A310E/cyberbench/win-smoke-storage:/storage
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "18006:8006"        # веб-интерфейс установки/экран
+    restart: "no"
+    stop_grace_period: 2m

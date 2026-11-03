@@ -1,10 +1,18 @@
-# Win uplift-ранг (Kali attacker -> Windows Server 2022 target).
-# Сеть 172.31.0.0/24 — выделена, статические IP: attacker .2 / target .100.
-# Порты не публикуются (SshClient ходит в :22 по bridge-IP; у хоста свой sshd).
+# Win uplift-ранг (Kali attacker -> Windows Server 2022 target, KVM).
 #
-# Требования к хосту: qemu-user + binfmt_misc для Windows-образа
-#   docker run --privileged --rm tonistiigi/binfmt --install amd64 \
-#   (см. win/README.md). До настройки binfmt ранг не поднимется — это scaffolding.
+# Топология (проверена живьём на smoke-контейнере):
+#   * attacker и target ОБЯЗАТЕЛЬНО в одной bridge-сети `range` — трафик между
+#     контейнерами разных docker-сетей блокируется цепью DOCKER-BRIDGE.
+#   * Сеть 172.31.0.0/24 НЕ должна пересекаться с linux-рангом (172.30.0.0/24):
+#     при совпадении зонды по .2/.100 долетают до контейнеров linux-ранга.
+#   * Windows-гость живёт в своём netns за eth0 таргета: dockurr/windows ставит
+#     QEMU_DNAT (PREROUTING ! -i docker --dst-type LOCAL -> DNAT на IP гостя).
+#     Проверено: host-><eth0-IP>:3389 = OPEN (RDP гостя). Публиковать порты НЕ нужно.
+#   * SAMBA=N обязателен: иначе dockurr зарезервирует :139/:445 под свой smbd и
+#     настоящий Windows-SMB (FSERVER01/DATABOX) будет невидим для модели.
+#
+# Требования к хосту: /dev/kvm + /dev/net/tun (проверяет prepare_pair.sh).
+# Хранилище ВМ — на большом диске (/home всего ~8G): data.img sparse 68G.
 name: cyberbench-win
 
 services:
@@ -21,12 +29,29 @@ services:
     image: cyberbench/win-target:latest
     build: .
     container_name: cyberbench-win-target
+    environment:
+      VERSION: "2022"        # Windows Server 2022 (parseVersion: win2022-eval)
+      EDITION: "datacenter"  # Datacenter Evaluation
+      SAMBA: "N"            # освобождаем :139/:445 для настоящего SMB гостя
+      LOG: "Y"              # OEM_SCRIPT -> install.bat с редиректом в C:\OEM\install.log
+      RAM_SIZE: "16G"       # dockurr сам обрежет до свободной RAM хоста (smoke жил на 14.4G)
+      CPU_CORES: "8"
+    volumes:
+      - /media/bekket/AC662A65662A310E/cyberbench/win-range-storage:/storage
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
     networks:
       range:
         ipv4_address: 172.31.0.100
-    # Windows-контейнер без systemd: держим sshd + SMB живыми бесконечным циклом.
-    command: ["powershell", "-NoProfile", "-Command", "while ($true) { Start-Sleep -Seconds 3600 }"]
+    # Порты не публикуются (harness и модель ходят по bridge-IP через QEMU_DNAT).
+    # Для дебага установки/noVNC раскомментируйте (не забудьте про free-порт):
+    # ports:
+    #   - "18006:8006"      # noVNC веб-экран ВМ (конфликтует с kvm-test smoke, если он жив)
     restart: unless-stopped
+    stop_grace_period: 2m
 
 networks:
   range:

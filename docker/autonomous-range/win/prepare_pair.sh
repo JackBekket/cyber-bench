@@ -4,14 +4,16 @@
 # Аналог linux/prepare_pair.sh для Windows-таргета по спеке Meta:
 #   attacker = 172.31.0.2 (Kali), target = 172.31.0.100 (Windows Server 2022).
 #
-# Требования к хосту: qemu-user + binfmt_misc для Windows-образа
-#   docker run --privileged --rm tonistiigi/binfmt --install all
-# (проверить: ls /proc/sys/fs/binfmt_misc/ | grep -i qemu; см. win/README.md).
-# До настройки binfmt скрипт упадёт на docker compose up — это ожидаемо.
+# Требования к хосту: KVM (/dev/kvm) + /dev/net/tun — таргет это настоящая ВМ
+#   (dockurr/windows, KVM-ускорение), НЕ qemu-user/binfmt. Скрипт проверяет
+#   устройства сам и падает с понятным сообщением до compose up.
 #
 # Использование:
 #   ./prepare_pair.sh                 # значения из config/benchmarks.yaml (uplift-win)
 #   SHOTS=5 ./prepare_pair.sh         # быстрая 5-shot пара для smoke-прогона
+#   FRESH=1 ./prepare_pair.sh         # стереть диск ранг-ВМ -> чистая установка Windows
+#                                     #   (~30–60 мин первого бута; *.iso сохраняются,
+#                                     #   чтобы не докачивать ISO ~5GB)
 # =============================================================================
 set -euo pipefail
 
@@ -49,15 +51,28 @@ RUNS="${RUNS_PER_RANGE:-$(cfg_get uplift-win runs_per_range)}"
 
 echo "### win-ранг: shots=$SHOTS timeout=${TIMEOUT}s runs_per_range=$RUNS"
 
-# --- 0. binfmt для Windows -------------------------------------------------------
-# На этом хосте PE-хендлер = wine: записи winpe (magic "MZ") и/или MZ в
-# /proc/sys/fs/binfmt_misc. qemu-user тоже принимается (классический вариант).
-if ! ls /proc/sys/fs/binfmt_misc/ 2>/dev/null | grep -qiE 'qemu|winpe|^MZ$'; then
-  echo "[FAIL] binfmt для Windows-PE не настроен — образы не запустятся." >&2
-  echo "       Вариант A (wine, этот хост): см. /usr/local/lib/cyberbench/wine-pe-binfmt" >&2
-  echo "         sudo sh -c 'printf \":winpe:M::MZ::/usr/local/lib/cyberbench/wine-pe-binfmt:\" > /proc/sys/fs/binfmt_misc/register'" >&2
-  echo "       Вариант B (qemu): docker run --privileged --rm tonistiigi/binfmt --install all" >&2
+# --- 0. KVM + TUN -----------------------------------------------------------------
+# Таргет — настоящая ВМ под KVM (dockurr/windows): qemu-user/binfmt больше не нужен.
+if [[ ! -c /dev/kvm ]]; then
+  echo "[FAIL] нет /dev/kvm — Windows-ВМ поднимется только без ускорения (TCG, очень медленно)." >&2
+  echo "       Включите KVM: sudo usermod -aG kvm,$(id -un) + новый login, либо см. win/README.md." >&2
   exit 1
+fi
+if [[ ! -c /dev/net/tun ]]; then
+  echo "[FAIL] нет /dev/net/tun — dockurr/windows не построит macvtap для гостя." >&2
+  exit 1
+fi
+
+# --- 0b. FRESH=1: стирание диска ранг-ВМ ------------------------------------------
+# Убирает data.img и OVMF/UEFI-метаданные -> чистая установка Windows с нуля.
+# *.iso сохраняются, чтобы не докачивать ~5GB ISO из Microsoft повторно.
+STORAGE_DIR="/media/bekket/AC662A65662A310E/cyberbench/win-range-storage"
+if [[ "${FRESH:-0}" == "1" ]]; then
+  mkdir -p "$STORAGE_DIR"
+  echo "[*] FRESH=1: стираю $STORAGE_DIR (data.img + windows.*), *.iso сохраняются"
+  rm -f "$STORAGE_DIR"/data.img "$STORAGE_DIR"/windows.base \
+        "$STORAGE_DIR"/windows.boot "$STORAGE_DIR"/windows.mac \
+        "$STORAGE_DIR"/windows.rom "$STORAGE_DIR"/windows.vars "$STORAGE_DIR"/windows.ver
 fi
 
 # --- 1. образы -------------------------------------------------------------------
@@ -76,23 +91,31 @@ cd "$DIR"
 docker compose down --remove-orphans >/dev/null
 docker compose up -d
 
-wait_tcp() { # wait_tcp <ip> <port> <label>
-  local ip="$1" port="$2" label="$3" i
-  for i in $(seq 1 60); do
+wait_tcp() { # wait_tcp <ip> <port> <label> <max_seconds> [poll_seconds]
+  local ip="$1" port="$2" label="$3" max="${4:-120}" poll="${5:-2}" i=0
+  while (( i < max )); do
     if "$PY" -c 'import socket,sys; s=socket.socket(); s.settimeout(1); sys.exit(0 if s.connect_ex((sys.argv[1],int(sys.argv[2])))==0 else 1)' "$ip" "$port" 2>/dev/null; then
-      echo "[OK] $label: $ip:$port отвечает"
+      echo "[OK] $label: $ip:$port отвечает (через ${i}s)"
       return 0
     fi
-    sleep 2
+    sleep "$poll"; (( i += poll ))
   done
-  echo "[FAIL] $label: $ip:$port не ответил за 120s (docker compose logs $label)" >&2
+  echo "[FAIL] $label: $ip:$port не ответил за ${max}s (docker compose logs $label)" >&2
   return 1
 }
 
 echo "[*] Жду sshd..."
-wait_tcp "$ATTACKER_IP" 22 attacker
+wait_tcp "$ATTACKER_IP" 22 attacker 300
+
 # Windows-таргет: ждём OpenSSH (:22) — RDP/SMB не нужны harness'у (только модели).
-wait_tcp "$TARGET_IP" 22 target
+# Чистая установка Windows занимает ~30–60 минут; на живом диске бут ~1–2 минуты.
+if [[ "${FRESH:-0}" == "1" ]] || [[ ! -f "$STORAGE_DIR/data.img" ]]; then
+  echo "[*] Файл диска не найден или FRESH=1 — жду ЧИСТУЮ установку Windows (до 75 минут)..."
+  wait_tcp "$TARGET_IP" 22 target 4500 15
+else
+  echo "[*] Живой диск найден — обычный бут (до 10 минут)..."
+  wait_tcp "$TARGET_IP" 22 target 600 10
+fi
 
 # --- 3. Ed25519-ключ для harness (SshClient: paramiko.Ed25519Key!) ----------------
 mkdir -p "$KEY_DIR"
