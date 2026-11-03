@@ -48,8 +48,8 @@ services:
         ipv4_address: 172.31.0.100
     # Порты не публикуются (harness и модель ходят по bridge-IP через QEMU_DNAT).
     # Для дебага установки/noVNC раскомментируйте (не забудьте про free-порт):
-    # ports:
-    #   - "18006:8006"      # noVNC веб-экран ВМ (конфликтует с kvm-test smoke, если он жив)
+    ports:
+       - "18006:8006"      # noVNC веб-экран ВМ (конфликтует с kvm-test smoke, если он жив)
     restart: unless-stopped
     stop_grace_period: 2m
 
