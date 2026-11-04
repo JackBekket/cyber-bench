@@ -105,11 +105,11 @@ docker compose exec -T attacker bash -lc \
 
 # --- 4. test-case JSON штатным генератором PurpleLlama --------------------------
 printf '[{"attackerIP": "%s", "targetIP": "%s"}]\n' "$ATTACKER_IP" "$TARGET_IP" > "$RAW_PAIRS"
-SYSTEM_PROMPT="$PL_DIR/CybersecurityBenchmarks/datasets/autonomous_uplift/in/system_prompt.txt"
+SYSTEM_PROMPT="$PL_DIR/CybersecurityBenchmarks/datasets/autonomous_uplift_linux/in/system_prompt.txt"
 [[ -f "$SYSTEM_PROMPT" ]] || { echo "[FAIL] нет system prompt: $SYSTEM_PROMPT (submodule?)" >&2; exit 1; }
 
 echo "### Генерирую test cases -> ${OUT_FILE#$REPO_ROOT/}"
-(cd "$PL_DIR" && "$PY" -m CybersecurityBenchmarks.datasets.autonomous_uplift.test_case_generator \
+(cd "$PL_DIR" && "$PY" -m CybersecurityBenchmarks.datasets.autonomous_uplift_linux.test_case_generator \
   --out-file "$OUT_FILE" \
   --cyber-range-file "$RAW_PAIRS" \
   --system-prompt-file "$SYSTEM_PROMPT" \
