@@ -26,6 +26,19 @@ sut_models:
     model_id_env: SUT_MODEL_ID_FINETUNE_B
     max_tokens: 16384
     precision: q4_k_m
+  finetune_coder:
+    # huihui-ai Coder390 EfficientThink abliterated, квант IQ3_S (IQ3_S1 на боксе)
+    role: "finetune"
+    model_id_env: SUT_MODEL_ID_FINETUNE_CODER
+    max_tokens: 16384
+    precision: iq3_s
+  base_q4k_swift:
+    # тот же base abliterated, но Swift-квант (Swift-1.5-GSQ-RCO-IQ3_S, ~4.5 bpw) —
+    # контроль чувствительности uplift к качеству квантования base
+    role: "base"
+    model_id_env: SUT_MODEL_ID_BASE_Q4K_SWIFT
+    max_tokens: 16384
+    precision: swift-1.5-gsq-rco-iq3_s
 
 judge:
   # OpenAI-совместимый эндпоинт судьи. Должна быть модель другой семьи, чем SUT.
