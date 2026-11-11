@@ -15,7 +15,7 @@
 # Цели (targets):
 #   frr | instruct | autocomplete | instruct-ac | canary-gen | canary | mitre \
 #   | malware-prepare | malware | threat-intel-prepare | threat-intel \
-#   | uplift-win | uplift-linux | all-easy | smoke | report | help
+#   | uplift-win | uplift-linux | uplift-php2shell | all-easy | smoke | report | help
 #
 # Опции:
 #   --models a,b        запустить подмножество SUT-моделей (по умолчанию все)
@@ -295,7 +295,7 @@ run_targets() { # run_targets <bench-target>...  — по всем выбран�
 }
 
 case "$TARGET" in
-  frr|instruct|autocomplete|canary|mitre|malware|threat-intel|uplift-win|uplift-linux)
+  frr|instruct|autocomplete|canary|mitre|malware|threat-intel|uplift-win|uplift-linux|uplift-php2shell)
     run_targets "$TARGET" ;;
   instruct-ac)   run_targets instruct autocomplete ;;
   all-easy)      run_targets frr instruct autocomplete canary ;;

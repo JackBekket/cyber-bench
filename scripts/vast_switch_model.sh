@@ -16,8 +16,12 @@
 #                  (или явный VAST_IP в .env)
 #   VAST_SSH_PORT — ssh-порт инстанса
 #
-# Шаги: unload -> load(n_parallel=2, tensor_split) -> ждать llama-server ->
-#   GPU-здоровье (cuInit==0, НЕ 999!) -> smoke через внешний API.
+# Шаги: GET /api/inference/loaded-models (резидентные модели; /status — только
+#   конфиг движка) -> если цель уже loaded, skip; иначе unload текущей
+#   (UnloadRequest ТРЕБУЕТ model_path в теле!) -> load(n_parallel=2,
+#   tensor_split=[1.0]) -> ждать readiness по loaded-models (llama-порт
+#   эфемерный — НЕ парсить ss -ltnp) -> GPU-здоровье (cuInit==0, НЕ 999!) ->
+#   smoke через внешний API.
 # =============================================================================
 set -euo pipefail
 
@@ -50,34 +54,70 @@ fi
 
 echo "### Переключаю модель на ${VAST_IP}:${SSH_PORT} -> $MODEL_PATH"
 
-# --- 1. unload текущей --------------------------------------------------------
-echo "[*] unload..."
-ssh -p "$SSH_PORT" "root@$VAST_IP" \
-  'curl -s --max-time 60 -X POST http://localhost:18888/api/inference/unload' || true
+# --- studio-state: "<status>\t<models>" (пусто, если endpoint недоступен) ------
+# GET /api/inference/status НЕ несёт status/model — только конфиг движка.
+# Надёжный readiness-эндпоинт: /api/inference/loaded-models ->
+#   {"data":[{"id":..., "loaded":true,...}]} (только резидентные модели).
+# Парсинг — удалённо (python на инстансе), потому что ssh-сессия печатает
+# banner'ы в stdout; берём только строку с маркером "ST\t".
+current_state() {
+  ssh -p "$SSH_PORT" "root@$VAST_IP" \
+    'curl -s --max-time 30 http://localhost:18888/api/inference/loaded-models | python3 -c "import json,sys;d=json.load(sys.stdin);ids=[m[\"id\"] for m in (d.get(\"data\") or []) if m.get(\"loaded\")];print(\"ST\t\"+(\"loaded\" if ids else \"idle\")+\"\t\"+(\",\".join(ids) or \"-\"))" || true' \
+    2>/dev/null | awk -F'\t' '/^ST\t/{print $2"\t"$3}' | tail -n1
+}
 
-# --- 2. load новой ------------------------------------------------------------
-echo "[*] load $MODEL_PATH (n_parallel=2, tensor_split)..."
-ssh -p "$SSH_PORT" "root@$VAST_IP" \
-  "curl -s --max-time 300 -X POST http://localhost:18888/api/inference/load \
-   -H 'Content-Type: application/json' \
-   -d '{\"model_path\":\"$MODEL_PATH\",\"n_parallel\":2,\"tensor_parallel\":true}'" || true
+read_state() { # read_state -> ST ("loaded"/"idle"), MO (comma-joined ids)
+  local line; line="$(current_state)" || true
+  ST=""; MO=""
+  [[ -z "$line" ]] && return 0
+  IFS=$'\t' read -r ST MO <<<"$line" || true
+}
 
-# --- 3. ждать llama-server (порт эфемерный, до 15 мин) -------------------------
-echo "[*] жду llama-server..."
+# --- 0. текущее состояние ------------------------------------------------------
+read_state
+echo "[*] статус: status=${ST:-<нет>} loaded-models=${MO:-<нет>}"
+
+if [[ "$ST" == "loaded" && "$MO" == "$MODEL_PATH" ]]; then
+  echo "[OK] $MODEL_PATH уже загружена — skip unload/load"
+else
+  # --- 1. unload текущей (тело ОБЯЗАТЕЛЬНО: required=[model_path]) -------------
+  if [[ -n "${MO:-}" && "$MO" != "-" && "$MO" != "$MODEL_PATH" ]]; then
+    IFS=',' read -ra CUR_MODELS <<<"$MO"
+    for cur in "${CUR_MODELS[@]}"; do
+      [[ -z "$cur" ]] && continue
+      echo "[*] unload $cur..."
+      ssh -p "$SSH_PORT" "root@$VAST_IP" \
+        "curl -s --max-time 120 -X POST http://localhost:18888/api/inference/unload -H 'Content-Type: application/json' -d '{\"model_path\":\"$cur\",\"force_cancel_active\":true}'" || true
+      echo
+    done
+  fi
+
+  # --- 2. load новой ------------------------------------------------------------
+  echo "[*] load $MODEL_PATH (n_parallel=2, tensor_split)..."
+  ssh -p "$SSH_PORT" "root@$VAST_IP" \
+  "curl -s --max-time 300 -X POST http://localhost:18888/api/inference/load -H 'Content-Type: application/json' -d '{\"model_path\":\"$MODEL_PATH\",\"n_parallel\":2,\"tensor_split\":[1.0]}'" || true
+  echo
+fi
+
+# --- 3. ждать readiness по status-эндпоинту (до 15 мин) ------------------------
+echo "[*] жду loaded..."
+ready=""
 for i in $(seq 1 90); do
-  port="$(ssh -p "$SSH_PORT" "root@$VAST_IP" \
-    'ss -ltn 2>/dev/null | grep llama-server | awk "{print \\\$4}" | tail -1 | cut -d: -f2' || true)"
-  if [[ -n "$port" ]]; then
-    echo "[OK] llama-server на порту $port (через ~$((i*10))s)"
+  read_state
+  if [[ "$ST" == "loaded" && "$MO" == "$MODEL_PATH" ]]; then
+    ready="yes"
+    echo "[OK] loaded (через ~$((i*10))s)"
     break
   fi
   sleep 10
 done
-[[ -n "${port:-}" ]] || { echo "[FAIL] llama-server не поднялся за 15 мин" >&2; exit 1; }
+[[ -n "${ready:-}" ]] || { echo "[FAIL] не дошло до 'loaded' за 15 мин (status=${ST:-?} model=${MO:-?})" >&2; exit 1; }
 
 # --- 4. GPU-здоровье: cuInit обязан вернуть 0 (999 = тихий fallback на CPU) ----
 cu="$(ssh -p "$SSH_PORT" "root@$VAST_IP" \
-  'env LD_LIBRARY_PATH= python3 -c "import ctypes; l=ctypes.CDLL(\"libcuda.so.1\"); l.cuInit.argtypes=[ctypes.c_uint]; print(l.cuInit(0))"' || true)"
+  'env LD_LIBRARY_PATH= python3 -c "import ctypes; l=ctypes.CDLL(\"libcuda.so.1\"); l.cuInit.argtypes=[ctypes.c_uint]; print(l.cuInit(0))"' \
+  || true)"
+cu="${cu##*$'\n'}"   # последняя строка (ssh может напечатать banner'ы до неё)
 echo "[*] cuInit = $cu"
 [[ "$cu" == "0" ]] || { echo "[FAIL] CUDA не инициализирована (cuInit=$cu) — нужен reboot инстанса, НЕ 999!" >&2; exit 1; }
 
@@ -86,8 +126,8 @@ echo "[*] smoke-тест через $SUT_ENDPOINT..."
 resp="$(curl -s --max-time 180 "$SUT_ENDPOINT/chat/completions" \
   -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
   -d "{\"model\":\"$MODEL_PATH\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: READY\"}],\"max_tokens\":64,\"temperature\":0}")"
-echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); m=d['choices'][0]['message']; print('MODEL:',d.get('model')); print('CONTENT:',repr(m['content'])[:120])" \
+echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); m=d['choices'][0]['message']; print('MODEL:',d.get('model')); print('CONTENT:',repr(m.get('content'))[:120])" \
   || { echo "[FAIL] smoke-ответ:" >&2; echo "$resp" | head -c 500 >&2; exit 1; }
 
-echo "### Готово: $MODEL_PATH активна на $SUT_ENDPOINT (llama-порт $port)."
+echo "### Готово: $MODEL_PATH активна на $SUT_ENDPOINT."
 echo "    Не забудьте обновить SUT_MODEL_ID_* в .env, если slug не совпадает."

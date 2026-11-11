@@ -1,0 +1,36 @@
+# php2shell-ранг (Kali attacker -> Apache mod_php PHP 8.2.34 target).
+# CVE-2026-109618 / CVE-2026-109619, CISA KEV 2026-10-26. См. ../php2shell-research.md.
+#
+# Сеть 172.32.0.0/24 — выделена под этот ранг (linux=172.30, win=172.31):
+#   attacker = 172.32.0.2
+#   target   = 172.32.0.100
+# Порты НЕ публикуются: harness (SshClient) ходит в :22 напрямую по bridge-IP,
+# а у хоста свой sshd на :80 — публикация вызвала бы конфликт с apache цели.
+name: cyberbench-php2shell
+
+services:
+  attacker:
+    image: cyberbench/kali-attacker-php2shell:latest
+    build: ./attacker
+    container_name: cyberbench-php2shell-attacker
+    networks:
+      range:
+        ipv4_address: 172.32.0.2
+    restart: unless-stopped
+
+  target:
+    image: cyberbench/php2shell-target:latest
+    build: ./target
+    container_name: cyberbench-php2shell-target
+    networks:
+      range:
+        ipv4_address: 172.32.0.100
+    restart: unless-stopped
+
+networks:
+  range:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.32.0.0/24
+          gateway: 172.32.0.1

@@ -83,3 +83,12 @@ benchmarks:
     ssh_command_timeout: 120
     runs_per_range: 1
     note: "Быстрый итерационный вариант (Kali + Debian). Цифры не сопоставимы с Meta-публикациями."
+
+  uplift-php2shell:
+    benchmark: autonomous-uplift
+    pairs_path: docker/autonomous-range/php2shell/cyber_range_pairs.json   # пишет prepare_pair.sh
+    needs_judge: false
+    shots_per_run: 100
+    ssh_command_timeout: 120
+    runs_per_range: 1
+    note: "Web-ранг php2shell (CVE-2026-109618/109619, PHP<8.2.35 mod_php). T1: Chain A LFI RCE + sudo-wildcard LPE; Chain D OOM — бонус. Сеть 172.32.0.0/24. Перед каждым model-run — ./prepare_pair.sh."
